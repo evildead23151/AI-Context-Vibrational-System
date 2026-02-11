@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>GPS Audio System - LIVE</title>
+    <style>
+        body {
+            font-family: monospace;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #0f0;
+        }
+
+        .box {
+            border: 2px solid #0f0;
+            padding: 20px;
+            margin: 20px 0;
+        }
+
+        button {
+            background: #0f0;
+            color: #000;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            margin: 10px 0;
+        }
+
+        button:disabled {
+            background: #555;
+            color: #999;
+        }
+
+        .log {
+            background: #000;
+            padding: 10px;
+            height: 200px;
+            overflow-y: auto;
+            font-size: 12px;
+            border: 1px solid #0f0;
+        }
+
+        .log div {
+            margin: 5px 0;
+        }
+
+        .gps {
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        audio {
+            width: 100%;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🎵 GPS AUDIO SYSTEM - LIVE</h1>
+
+    <div class="box">
+        <h2>GPS LOCATION</h2>
+        <div class="gps" id="gps-display">Waiting...</div>
+    </div>
+
+    <div class="box">
+        <h2>CONTROLS</h2>
+        <button id="start-btn" onclick="startSystem()">
+            START SYSTEM
+        </button>
+        <button id="generate-btn" onclick="generateAudio()" disabled>
+            GENERATE AUDIO FROM GPS
+        </button>
+    </div>
+
+    <div class="box">
+        <h2>AUDIO PLAYER</h2>
+        <audio id="player" controls></audio>
+        <div id="audio-status">No audio yet</div>
+    </div>
+
+    <div class="box">
+        <h2>SYSTEM LOG</h2>
+        <div class="log" id="log"></div>
+    </div>
+
+    <script>
+        const API = 'http://localhost:5000/api';
+        let gpsWatchId = null;
+        let currentLat = null;
+        let currentLon = null;
+        let systemRunning = false;
+
+        function log(msg) {
+            const logDiv = document.getElementById('log');
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.textContent = `[${time}] ${msg}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(msg);
+        }
+
+        function startSystem() {
+            log('🚀 STARTING SYSTEM...');
+
+            if (!navigator.geolocation) {
+                log('❌ GPS not supported');
+                alert('Geolocation not supported');
+                return;
+            }
+
+            // Request GPS permission
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    log('✅ GPS permission granted');
+                    updateGPS(position);
+
+                    // Watch GPS
+                    gpsWatchId = navigator.geolocation.watchPosition(
+                        updateGPS,
+                        (error) => log(`❌ GPS error: ${error.message}`),
+                        { enableHighAccuracy: true }
+                    );
+
+                    systemRunning = true;
+                    document.getElementById('start-btn').disabled = true;
+                    document.getElementById('generate-btn').disabled = false;
+
+                    log('✅ SYSTEM LIVE - GPS tracking active');
+                },
+                (error) => {
+                    log(`❌ GPS denied: ${error.message}`);
+                    alert('GPS permission required!');
+                }
+            );
+        }
+
+        function updateGPS(position) {
+            currentLat = position.coords.latitude;
+            currentLon = position.coords.longitude;
+
+            document.getElementById('gps-display').textContent =
+                `${currentLat.toFixed(6)}°, ${currentLon.toFixed(6)}°`;
+
+            log(`📍 GPS: ${currentLat.toFixed(4)}, ${currentLon.toFixed(4)}`);
+        }
+
+        async function generateAudio() {
+            if (!currentLat || !currentLon) {
+                log('❌ No GPS data');
+                return;
+            }
+
+            log(`🎵 Generating audio from GPS...`);
+
+            try {
+                // Send GPS to backend
+                const response = await fetch(`${API}/gps`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        latitude: currentLat,
+                        longitude: currentLon
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    log(`✅ Audio generated: ${data.audio_file}`);
+
+                    // Play audio
+                    const audioURL = `${API}/audio/${data.audio_file}`;
+                    const player = document.getElementById('player');
+                    player.src = audioURL;
+                    player.load();
+
+                    // Auto-play
+                    player.play().then(() => {
+                        log('🔊 PLAYING AUDIO');
+                        document.getElementById('audio-status').textContent =
+                            `Playing: ${data.audio_file}`;
+                    }).catch(err => {
+                        log(`⚠️ Autoplay blocked: ${err.message}`);
+                        log('Click play button manually');
+                    });
+
+                } else {
+                    log(`❌ Error: ${data.error}`);
+                }
+
+            } catch (error) {
+                log(`❌ Network error: ${error.message}`);
+            }
+        }
+
+        // Auto-generate on start (after GPS acquired)
+        let autoGenerated = false;
+        setInterval(() => {
+            if (systemRunning && currentLat && !autoGenerated) {
+                log('🎵 Auto-generating first audio...');
+                generateAudio();
+                autoGenerated = true;
+            }
+        }, 1000);
+
+        // Log on load
+        window.onload = () => {
+            log('💻 Frontend loaded');
+            log('Click START SYSTEM to begin');
+        };
+    </script>
+</body>
+
+</html>
